@@ -73,7 +73,7 @@ export default async function(forceToVersion?: true) {
 	DisplayDoneStatus()
 }
 
-export const TestReleaseAutoUpdater = async () => {
+export const TestReleaseAutoUpdater = async (): Promise<void> => {
 	// Make sure we aren't trying to release for GitHub (not supported yet)
 	if (BuildReleaseLocation.Type === "GitHub") {
 		throw new Error("Releasing to GitHub is not supported yet.")

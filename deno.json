@@ -1,7 +1,8 @@
 {
-	"name": "@socali/spices",
-	"version": "4.1.1",
+	"name": "@maplewrt/spices",
+	"version": "4.2.0",
 	"tasks": {},
+	"license": "MIT",
 	"compilerOptions": {
 		"lib": [
 			"ESNext",
