@@ -22,6 +22,8 @@ import {
 	type ProviderLyrics, type TransformedLyrics, type RomanizedLanguage
 } from "./LyricUtilities.ts"
 
+import { fetchLrclibLyrics, parseLrclibToProvider } from "./LrclibClient.ts"
+
 // Re-export some useful types
 export type { RomanizedLanguage, TransformedLyrics }
 
@@ -363,58 +365,51 @@ const LoadSongLyrics = () => {
 	{
 		// First determine if we have our lyrics stored already
 		ProviderLyricsStore.GetItem(songAtUpdate.Id)
-		.then(
-			providerLyrics => {
-				if (providerLyrics === undefined) { // Otherwise, get our lyrics
-					return (
-						(
-							GetSpotifyAccessToken()
-							.then(
-								accessToken => fetch(
-									`https://beautiful-lyrics.socalifornian.live/lyrics/${encodeURIComponent(songAtUpdate.Id)}`,
-									// `http://localhost:8787/lyrics/${encodeURIComponent(songAtUpdate.Id)}`,
-									{
-										method: "GET",
-										headers: {
-											Authorization: `Bearer ${accessToken}`
-										}
-									}
-								)
-							)
-							.then(
-								(response) => {
-									if (response.ok === false) {
-										throw `Failed to load Lyrics for Track (${
-											songAtUpdate.Id
-										}), Error: ${response.status} ${response.statusText}`
-									}
-				
-									return response.text()
-								}
-							)
-							.then(
-								text => {
-									if (text.length === 0) {
-										return undefined
-									} else {
-										return JSON.parse(text)
-									}
-								}
-							)
-						)
-						.then(
-							(providerLyrics) => {
-								const lyrics = (providerLyrics ?? false)
-								ProviderLyricsStore.SetItem(songAtUpdate.Id, lyrics)
-								return lyrics
-							}
-						)
-					)
-				} else {
-					return providerLyrics
-				}
+		.then(providerLyrics => {
+			if (providerLyrics === undefined) {
+				// 1) 先尝试从 lrclib 获取（需要保证 SongDetails 已加载）
+				return fetchLrclibLyrics(
+					(SongDetails as StreamedSongDetails).Name,
+					(SongDetails as StreamedSongDetails).Artists[0].Name
+				)
+				.then(lrclib => {
+					if (lrclib.syncedLyrics) {
+						// 如果有逐行同步歌词，直接转换并存储
+						const fromLrclib = parseLrclibToProvider(lrclib);
+						ProviderLyricsStore.SetItem(songAtUpdate.Id, fromLrclib);
+						return fromLrclib;
+					}
+					// 否则扔到 catch 里，走下面的回退流程
+					throw new Error("no synced lyrics");
+				})
+				.catch(() => {
+					// 2) 回退到原有的 beautiful-lyrics.socalifornian.live 接口
+					return GetSpotifyAccessToken()
+					.then(token => fetch(
+						`https://beautiful-lyrics.socalifornian.live/lyrics/${encodeURIComponent(songAtUpdate.Id)}`,
+						{
+							method: "GET",
+							headers: { Authorization: `Bearer ${token}` }
+						}
+					))
+					.then(response => {
+						if (!response.ok) {
+							throw new Error(`Failed to load Lyrics (${response.status})`);
+						}
+						return response.text();
+					})
+					.then(text => text.length ? JSON.parse(text) : undefined)
+				})
+				// 统一存储并返回 ProviderLyrics 或 false
+				.then(res => {
+					const lyrics = res ?? false;
+					ProviderLyricsStore.SetItem(songAtUpdate.Id, lyrics);
+					return lyrics;
+				});
+			} else {
+				return providerLyrics
 			}
-		)
+		})
 		.then(
 			(storedProviderLyrics): Promise<[(ProviderLyrics | false), (TransformedLyrics | false | undefined)]> => {
 				return (
